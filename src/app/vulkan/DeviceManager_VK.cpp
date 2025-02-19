@@ -442,11 +442,11 @@ bool DeviceManager_VK::pickPhysicalDevice()
     // pick the first discrete GPU if it exists, otherwise the first integrated GPU
     if (!discreteGPUs.empty())
     {
-        int selectedIndex = 0;
+        uint32_t selectedIndex = 0;
 #if DONUT_WITH_STREAMLINE
         // Auto select best adapter for streamline features
         if (adapterIndex < 0)
-            selectedIndex = StreamlineIntegration::Get().FindBestAdapter((void*)&discreteGPUs);
+            selectedIndex = StreamlineIntegration::Get().FindBestAdapterVulkan(discreteGPUs);
 #endif
 
         m_VulkanPhysicalDevice = discreteGPUs[selectedIndex];
@@ -455,11 +455,11 @@ bool DeviceManager_VK::pickPhysicalDevice()
 
     if (!otherGPUs.empty())
     {
-        int selectedIndex = 0;
+        uint32_t selectedIndex = 0;
 #if DONUT_WITH_STREAMLINE
         // Auto select best adapter for streamline features
         if (adapterIndex < 0)
-            selectedIndex = StreamlineIntegration::Get().FindBestAdapter((void*)&otherGPUs);
+            selectedIndex = StreamlineIntegration::Get().FindBestAdapterVulkan(otherGPUs);
 #endif
         m_VulkanPhysicalDevice = otherGPUs[selectedIndex];
         return true;
@@ -699,7 +699,8 @@ bool DeviceManager_VK::createDevice()
         .setShaderInt16(true)
         .setFillModeNonSolid(true)
         .setFragmentStoresAndAtomics(true)
-        .setDualSrcBlend(true);
+        .setDualSrcBlend(true)
+        .setVertexPipelineStoresAndAtomics(true);
 
     // Add a Vulkan 1.1 structure with default settings to make it easier for apps to modify them
     auto vulkan11features = vk::PhysicalDeviceVulkan11Features()
@@ -882,11 +883,19 @@ bool DeviceManager_VK::createSwapChain()
 
 bool DeviceManager_VK::CreateInstanceInternal()
 {
+#if DONUT_WITH_STREAMLINE
+    StreamlineIntegration::Get().InitializePreDevice(nvrhi::GraphicsAPI::VULKAN, m_DeviceParams.streamlineAppId, m_DeviceParams.checkStreamlineSignature, m_DeviceParams.enableStreamlineLog);
+#endif
+
     if (m_DeviceParams.enableDebugRuntime)
     {
         enabledExtensions.instance.insert("VK_EXT_debug_report");
         enabledExtensions.layers.insert("VK_LAYER_KHRONOS_validation");
     }
+
+#if DONUT_WITH_STREAMLINE
+    m_DeviceParams.vulkanLibraryName = "sl.interposer.dll";
+#endif
 
     m_dynamicLoader = std::make_unique<VulkanDynamicLoader>(m_DeviceParams.vulkanLibraryName);
 
@@ -953,11 +962,6 @@ bool DeviceManager_VK::EnumerateAdapters(std::vector<AdapterInfo>& outAdapters)
 
 bool DeviceManager_VK::CreateDevice()
 {
-#if DONUT_WITH_STREAMLINE
-    const bool kCheckSig = true;
-    StreamlineIntegration::Get().InitializePreDevice(nvrhi::GraphicsAPI::VULKAN, m_DeviceParams.streamlineAppId, kCheckSig, m_DeviceParams.enableStreamlineLog);
-#endif
-
     if (m_DeviceParams.enableDebugRuntime)
     {
         installDebugCallback();
