@@ -294,12 +294,24 @@ bool StreamlineIntegration::InitializePreDevice(nvrhi::GraphicsAPI api, int appI
     m_slInitialized = successCheck(slInit(pref, SDK_VERSION), "slInit");
     if (!m_slInitialized)
     {
-        log::error("Failed to initialse SL.");
+        log::error("Failed to initialise SL.");
         return false;
     }
 
     return true;
 }
+
+#if DONUT_WITH_DX11 || DONUT_WITH_DX12
+bool StreamlineIntegration::SetD3DDevice(IUnknown* nativeDevice)
+{
+    bool result = successCheck(slSetD3DDevice(nativeDevice), "slSetD3DDevice");
+    if (!result)
+    {
+        log::error("Failed to initialise SL.");
+    }
+    return result;
+}
+#endif
 
 #if DONUT_WITH_DX11 || DONUT_WITH_DX12
 bool StreamlineIntegration::InitializeDeviceDX(nvrhi::IDevice *device, AdapterInfo::LUID *pAdapterIdDx11)
@@ -314,18 +326,24 @@ bool StreamlineIntegration::InitializeDeviceDX(nvrhi::IDevice *device, AdapterIn
     }
 #endif
 
-    bool result = false;
-#if DONUT_WITH_DX11
-    if (m_api == nvrhi::GraphicsAPI::D3D11)
-        result = successCheck(slSetD3DDevice((ID3D11Device*)device->getNativeObject(nvrhi::ObjectTypes::D3D11_Device)), "slSetD3DDevice");
-#endif
-#if DONUT_WITH_DX12
-    if (m_api == nvrhi::GraphicsAPI::D3D12)
-        result = successCheck(slSetD3DDevice((ID3D12Device*)device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device)), "slSetD3DDevice");
+    UpdateFeatureAvailable();
+    return true;
+}
 #endif
 
-    UpdateFeatureAvailable();
-    return result;
+#if DONUT_WITH_DX11 || DONUT_WITH_DX12
+bool StreamlineIntegration::UpgradeInterface(IUnknown*& interfacePointer)
+{
+    IUnknown* nativeInterface = interfacePointer;
+    sl::Result slRes = slUpgradeInterface((void**)&interfacePointer);
+    if (slRes != sl::Result::eOk)
+    {
+        donut::log::error("slUpgradeInterface failed.\n");
+        return false;
+    }
+    // Release the native interface
+    nativeInterface->Release();
+    return true;
 }
 #endif
 
@@ -334,37 +352,13 @@ bool StreamlineIntegration::InitializeDeviceVK(nvrhi::IDevice* device, const Vul
 {
     m_device = device;
 
-    bool result = false;
-    if (m_api == nvrhi::GraphicsAPI::VULKAN)
-    {
-        sl::VulkanInfo slVulkanInfo;
-        slVulkanInfo.device = static_cast<VkDevice>(vulkanInfo.vkDevice);
-        slVulkanInfo.instance = static_cast<VkInstance>(vulkanInfo.vkInstance);
-        slVulkanInfo.physicalDevice = static_cast<VkPhysicalDevice>(vulkanInfo.vkPhysicalDevice);
-        slVulkanInfo.computeQueueIndex = vulkanInfo.computeQueueIndex;
-        slVulkanInfo.computeQueueFamily = vulkanInfo.computeQueueFamily;
-        slVulkanInfo.graphicsQueueIndex = vulkanInfo.graphicsQueueIndex;
-        slVulkanInfo.graphicsQueueFamily = vulkanInfo.graphicsQueueFamily;
-        slVulkanInfo.opticalFlowQueueIndex = vulkanInfo.opticalFlowQueueIndex;
-        slVulkanInfo.opticalFlowQueueFamily = vulkanInfo.opticalFlowQueueFamily;
-        slVulkanInfo.useNativeOpticalFlowMode = vulkanInfo.useNativeOpticalFlowMode;
-        slVulkanInfo.computeQueueCreateFlags = vulkanInfo.computeQueueCreateFlags;
-        slVulkanInfo.graphicsQueueCreateFlags = vulkanInfo.graphicsQueueCreateFlags;
-        slVulkanInfo.opticalFlowQueueCreateFlags = vulkanInfo.opticalFlowQueueCreateFlags;
-
-        result = successCheck(slSetVulkanInfo(slVulkanInfo), "slSetVulkanInfo");
-    }
-
     UpdateFeatureAvailable();
-    return result;
+    return true;
 }
 #endif
 
-int StreamlineIntegration::FindBestAdapter(void* vkDevices)
+uint32_t StreamlineIntegration::CheckNumSupportedFeatures(const sl::AdapterInfo &adapterInfo)
 {
-    int foundAdapter = -1;
-    sl::AdapterInfo adapterInfo;
-
     auto checkFeature = [this, &adapterInfo](sl::Feature feature, std::string feature_name) -> bool
         {
             sl::Result res = slIsFeatureSupported(feature, adapterInfo);
@@ -386,35 +380,37 @@ int StreamlineIntegration::FindBestAdapter(void* vkDevices)
             return (res == sl::Result::eOk);
         };
 
-    auto checkSLFeatureSupport = [&checkFeature]() -> uint32_t
-        {
-            uint32_t supportedSLFeatureCnt{};
+
+    uint32_t supportedSLFeatureCnt = 0;
 
 #if STREAMLINE_FEATURE_DLSS_SR
-            supportedSLFeatureCnt += static_cast<uint32_t>(checkFeature(sl::kFeatureDLSS, "DLSS"));
+    supportedSLFeatureCnt += static_cast<uint32_t>(checkFeature(sl::kFeatureDLSS, "DLSS"));
 #endif
 #if STREAMLINE_FEATURE_NIS
-            supportedSLFeatureCnt += static_cast<uint32_t>(checkFeature(sl::kFeatureNIS, "NIS"));
+    supportedSLFeatureCnt += static_cast<uint32_t>(checkFeature(sl::kFeatureNIS, "NIS"));
 #endif
 #if STREAMLINE_FEATURE_DLSS_FG
-            supportedSLFeatureCnt += static_cast<uint32_t>(checkFeature(sl::kFeatureDLSS_G, "DLSS_G"));
+    supportedSLFeatureCnt += static_cast<uint32_t>(checkFeature(sl::kFeatureDLSS_G, "DLSS_G"));
 #endif
 #if STREAMLINE_FEATURE_REFLEX
-            supportedSLFeatureCnt += static_cast<uint32_t>(checkFeature(sl::kFeatureReflex, "Reflex"));
+    supportedSLFeatureCnt += static_cast<uint32_t>(checkFeature(sl::kFeatureReflex, "Reflex"));
 #endif
 #if STREAMLINE_FEATURE_DEEPDVC
-            supportedSLFeatureCnt += static_cast<uint32_t>(checkFeature(sl::kFeatureDeepDVC, "DeepDVC"));
+    supportedSLFeatureCnt += static_cast<uint32_t>(checkFeature(sl::kFeatureDeepDVC, "DeepDVC"));
 #endif
 #if STREAMLINE_FEATURE_DLSS_RR && STREAMLINE_HAS_DLSS_RR
-            supportedSLFeatureCnt += static_cast<uint32_t>(checkFeature(sl::kFeatureDLSS_RR, "DLSS_RR"));
+    supportedSLFeatureCnt += static_cast<uint32_t>(checkFeature(sl::kFeatureDLSS_RR, "DLSS_RR"));
 #endif
 
-            return supportedSLFeatureCnt;
-        };
-
-    uint32_t maxSLSupportedFeatures{};
+    return supportedSLFeatureCnt;
+}
 
 #if DONUT_WITH_DX11 || DONUT_WITH_DX12
+uint32_t StreamlineIntegration::FindBestAdapterDX()
+{
+    uint32_t foundAdapter = 0;
+    int maxSLSupportedFeatures = -1;
+
     if (m_api == nvrhi::GraphicsAPI::D3D11 || m_api == nvrhi::GraphicsAPI::D3D12)
     {
         IDXGIFactory1* DXGIFactory;
@@ -427,12 +423,12 @@ int StreamlineIntegration::FindBestAdapter(void* vkDevices)
 
         IDXGIAdapter* pBestAdapter = nullptr;
         DXGI_ADAPTER_DESC bestAdapterDesc = {};
-        unsigned int adapterNo = 0;
-        IDXGIAdapter* pAdapter;
+        uint32_t adapterIndex = 0;
+        IDXGIAdapter* pAdapter = nullptr;
 
         while (true)
         {
-            hres = DXGIFactory->EnumAdapters(adapterNo, &pAdapter);
+            hres = DXGIFactory->EnumAdapters(adapterIndex, &pAdapter);
 
             if (!(hres == S_OK))
                 break;
@@ -440,22 +436,22 @@ int StreamlineIntegration::FindBestAdapter(void* vkDevices)
             DXGI_ADAPTER_DESC adapterDesc;
             pAdapter->GetDesc(&adapterDesc);
 
+            sl::AdapterInfo adapterInfo{};
             adapterInfo.deviceLUID = (uint8_t*)&adapterDesc.AdapterLuid;
             adapterInfo.deviceLUIDSizeInBytes = sizeof(LUID);
 
             log::info("Found adapter: %S, DeviceId=0x%X, Vendor: %i", adapterDesc.Description, adapterDesc.DeviceId, adapterDesc.VendorId);
 
-            auto supportedSLFeatureCnt{ checkSLFeatureSupport() };
-
+            int supportedSLFeatureCnt = CheckNumSupportedFeatures(adapterInfo);
             if (supportedSLFeatureCnt > maxSLSupportedFeatures)
             {
                 pBestAdapter = pAdapter;
-                foundAdapter = int(adapterNo);
+                foundAdapter = adapterIndex;
                 bestAdapterDesc = adapterDesc;
                 maxSLSupportedFeatures = supportedSLFeatureCnt;
             }
 
-            adapterNo++;
+            adapterIndex++;
         }
 
         if (pBestAdapter != nullptr)
@@ -470,26 +466,32 @@ int StreamlineIntegration::FindBestAdapter(void* vkDevices)
         if (DXGIFactory)
             DXGIFactory->Release();
     }
+    return foundAdapter;
+}
 #endif
 
 #if DONUT_WITH_VULKAN
+uint32_t StreamlineIntegration::FindBestAdapterVulkan(const std::vector <vk::PhysicalDevice> &vkDevices)
+{
+    uint32_t foundAdapter = 0;
+    int maxSLSupportedFeatures = -1;
+
     if (m_api == nvrhi::GraphicsAPI::VULKAN)
     {
-        vk::PhysicalDevice* pBestAdapter = nullptr;
+        const vk::PhysicalDevice* pBestAdapter = nullptr;
         vk::PhysicalDeviceProperties bestAdapterDesc;
-        adapterInfo = {}; // reset the adpater info
 
-        int adapterIndex = 0;
-        for (auto& devicePtr : *((std::vector <vk::PhysicalDevice>*)vkDevices))
+        uint32_t adapterIndex = 0;
+        for (auto& devicePtr : vkDevices)
         {
+            sl::AdapterInfo adapterInfo{};
             adapterInfo.vkPhysicalDevice = devicePtr;
 
             auto adapterDesc = ((vk::PhysicalDevice)devicePtr).getProperties();
             auto str = adapterDesc.deviceName.data();
             log::info("Found adapter: %s, DeviceId=0x%X, Vendor: %i", str, adapterDesc.deviceID, adapterDesc.vendorID);
 
-            auto supportedSLFeatureCnt{ checkSLFeatureSupport() };
-
+            int supportedSLFeatureCnt = CheckNumSupportedFeatures(adapterInfo);
             if (supportedSLFeatureCnt > maxSLSupportedFeatures)
             {
                 pBestAdapter = &devicePtr;
@@ -510,10 +512,9 @@ int StreamlineIntegration::FindBestAdapter(void* vkDevices)
             log::info("No ideal adapter was found, we will use the default adapter.");
         }
     }
-#endif
-
     return foundAdapter;
 }
+#endif
 
 void StreamlineIntegration::UpdateFeatureAvailable()
 {
@@ -740,7 +741,7 @@ static sl::DLSSDOptions ConvertOptions(const StreamlineIntegration::DLSSRROption
     static_assert(sl::DLSSDPreset::ePresetC == (sl::DLSSDPreset)StreamlineIntegration::DLSSRRPreset::ePresetC);
     static_assert(sl::DLSSDPreset::ePresetD == (sl::DLSSDPreset)StreamlineIntegration::DLSSRRPreset::ePresetD);
     static_assert(sl::DLSSDPreset::ePresetE == (sl::DLSSDPreset)StreamlineIntegration::DLSSRRPreset::ePresetE);
-    static_assert(sl::DLSSDPreset::ePresetG == (sl::DLSSDPreset)StreamlineIntegration::DLSSRRPreset::ePresetG);
+    //static_assert(sl::DLSSDPreset::ePresetG == (sl::DLSSDPreset)StreamlineIntegration::DLSSRRPreset::ePresetF);
     
     static_assert(sl::DLSSMode::eOff == (sl::DLSSMode)StreamlineIntegration::DLSSMode::eOff);
     static_assert(sl::DLSSMode::eMaxPerformance == (sl::DLSSMode)StreamlineIntegration::DLSSMode::eMaxPerformance);
@@ -964,6 +965,56 @@ void StreamlineIntegration::SetDLSSGOptions(const DLSSGOptions& options)
 #endif
 
     successCheck(slDLSSGSetOptions(m_viewport, slOptions), "slDLSSGSetOptions");
+}
+
+void StreamlineIntegration::GetDLSSGState(DLSSGState& state, const DLSSGOptions& options)
+{
+    if (!m_slInitialized || !m_dlssgAvailable)
+    {
+        log::warning("SL not initialised or DLSSG not available.");
+        return;
+    }
+
+    sl::DLSSGOptions slOptions;
+    slOptions.mode = (sl::DLSSGMode)options.mode;
+    slOptions.numFramesToGenerate = options.numFramesToGenerate;
+    slOptions.flags = (sl::DLSSGFlags)options.flags;
+    slOptions.dynamicResWidth = options.dynamicResWidth;
+    slOptions.dynamicResHeight = options.dynamicResHeight;
+    slOptions.numBackBuffers = options.numBackBuffers;
+    slOptions.mvecDepthWidth = options.mvecDepthWidth;
+    slOptions.mvecDepthHeight = options.mvecDepthHeight;
+    slOptions.colorWidth = options.colorWidth;
+    slOptions.colorHeight = options.colorHeight;
+    slOptions.colorBufferFormat = options.colorBufferFormat;
+    slOptions.mvecBufferFormat = options.mvecBufferFormat;
+    slOptions.depthBufferFormat = options.depthBufferFormat;
+    slOptions.hudLessBufferFormat = options.hudLessBufferFormat;
+    slOptions.uiBufferFormat = options.uiBufferFormat;
+    slOptions.onErrorCallback = nullptr; // donut does not expose this
+
+    sl::DLSSGState slState;
+    successCheck(slDLSSGGetState(m_viewport, slState, &slOptions), "slDLSSGGetState");
+
+    state.estimatedVRAMUsageInBytes = slState.estimatedVRAMUsageInBytes;
+    switch (slState.status)
+    {
+    case (sl::DLSSGStatus::eOk)                                     : state.status = DLSSGStatus::eOk; break;
+    case (sl::DLSSGStatus::eFailResolutionTooLow)                   : state.status = DLSSGStatus::eFailResolutionTooLow; break;
+    case (sl::DLSSGStatus::eFailReflexNotDetectedAtRuntime)         : state.status = DLSSGStatus::eFailReflexNotDetectedAtRuntime; break;
+    case (sl::DLSSGStatus::eFailHDRFormatNotSupported)              : state.status = DLSSGStatus::eFailHDRFormatNotSupported; break;
+    case (sl::DLSSGStatus::eFailCommonConstantsInvalid)             : state.status = DLSSGStatus::eFailCommonConstantsInvalid; break;
+    case (sl::DLSSGStatus::eFailGetCurrentBackBufferIndexNotCalled) : state.status = DLSSGStatus::eFailGetCurrentBackBufferIndexNotCalled; break;
+    default:
+        log::warning("DLSSG status is unknown.");
+        break;
+    }
+    state.minWidthOrHeight = slState.minWidthOrHeight;
+    state.numFramesActuallyPresented = slState.numFramesActuallyPresented;
+    state.numFramesToGenerateMax = slState.numFramesToGenerateMax;
+    state.bIsVsyncSupportAvailable = slState.bIsVsyncSupportAvailable;
+    state.inputsProcessingCompletionFence = slState.inputsProcessingCompletionFence;
+    state.lastPresentInputsProcessingCompletionFenceValue = slState.lastPresentInputsProcessingCompletionFenceValue;
 }
 
 void StreamlineIntegration::CleanupDLSSG(bool wfi)
@@ -1510,9 +1561,42 @@ void StreamlineIntegration::SetReflexConsts(const ReflexOptions& options)
         return;
     }
 
-    successCheck(slReflexSetOptions(slOptions), "Reflex_Options");
+    successCheck(slReflexSetOptions(slOptions), "slReflexSetOptions");
+}
 
-    return;
+void StreamlineIntegration::GetReflexState(ReflexState& state) const
+{
+    if (!m_slInitialized || !m_reflexAvailable)
+    {
+        log::warning("SL not initialised or Reflex not available.");
+        return;
+    }
+
+    sl::ReflexState slState;
+    successCheck(slReflexGetState(slState), "slReflexGetState");
+    state.lowLatencyAvailable = slState.lowLatencyAvailable;
+    state.latencyReportAvailable = slState.latencyReportAvailable;
+    state.statsWindowMessage = slState.statsWindowMessage;
+    state.flashIndicatorDriverControlled = slState.flashIndicatorDriverControlled;
+    for (size_t i = 0; i < 64; i++)
+    {
+        state.frameReport[i].frameID                = slState.frameReport[i].frameID;
+        state.frameReport[i].inputSampleTime        = slState.frameReport[i].inputSampleTime;
+        state.frameReport[i].simStartTime           = slState.frameReport[i].simStartTime;
+        state.frameReport[i].simEndTime             = slState.frameReport[i].simEndTime;
+        state.frameReport[i].renderSubmitStartTime  = slState.frameReport[i].renderSubmitStartTime;
+        state.frameReport[i].renderSubmitEndTime    = slState.frameReport[i].renderSubmitEndTime;
+        state.frameReport[i].presentStartTime       = slState.frameReport[i].presentStartTime;
+        state.frameReport[i].presentEndTime         = slState.frameReport[i].presentEndTime;
+        state.frameReport[i].driverStartTime        = slState.frameReport[i].driverStartTime;
+        state.frameReport[i].driverEndTime          = slState.frameReport[i].driverEndTime;
+        state.frameReport[i].osRenderQueueStartTime = slState.frameReport[i].osRenderQueueStartTime;
+        state.frameReport[i].osRenderQueueEndTime   = slState.frameReport[i].osRenderQueueEndTime;
+        state.frameReport[i].gpuRenderStartTime     = slState.frameReport[i].gpuRenderStartTime;
+        state.frameReport[i].gpuRenderEndTime       = slState.frameReport[i].gpuRenderEndTime;
+        state.frameReport[i].gpuActiveRenderTimeUs  = slState.frameReport[i].gpuActiveRenderTimeUs;
+        state.frameReport[i].gpuFrameTimeUs         = slState.frameReport[i].gpuFrameTimeUs;
+    }
 }
 
 void StreamlineIntegration::SimStart(DeviceManager& manager)

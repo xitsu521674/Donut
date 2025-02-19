@@ -134,7 +134,8 @@ namespace donut::app
 #endif
 
 #if DONUT_WITH_STREAMLINE
-        int streamlineAppId = 0;
+        int streamlineAppId = 1; // default app id
+        bool checkStreamlineSignature = true; // check if the streamline dlls are signed
         bool enableStreamlineLog = false;
 #endif
     };
