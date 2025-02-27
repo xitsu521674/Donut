@@ -544,41 +544,41 @@ void StreamlineIntegration::UpdateFeatureAvailable()
 
     // Check if features are fully functional (2nd call of slIsFeatureSupported onwards)
 #if STREAMLINE_FEATURE_DLSS_SR
-    m_dlssAvailable = successCheck(slIsFeatureSupported(sl::kFeatureDLSS, adapterInfo), "slIsFeatureSupported_DLSS");
+    m_dlssAvailable = sl::Result::eOk == slIsFeatureSupported(sl::kFeatureDLSS, adapterInfo), "slIsFeatureSupported_DLSS";
     if (m_dlssAvailable) log::info("DLSS is supported on this system.");
     else log::warning("DLSS is not fully functional on this system.");
 #endif
 
 #if STREAMLINE_FEATURE_NIS
-    m_nisAvailable = successCheck(slIsFeatureSupported(sl::kFeatureNIS, adapterInfo), "slIsFeatureSupported_NIS");
+    m_nisAvailable = sl::Result::eOk == slIsFeatureSupported(sl::kFeatureNIS, adapterInfo), "slIsFeatureSupported_NIS";
     if (m_nisAvailable) log::info("NIS is supported on this system.");
     else log::warning("NIS is not fully functional on this system.");
 #endif
 
 #if STREAMLINE_FEATURE_DLSS_FG
-    m_dlssgAvailable = successCheck(slIsFeatureSupported(sl::kFeatureDLSS_G, adapterInfo), "slIsFeatureSupported_DLSSG");
+    m_dlssgAvailable = sl::Result::eOk == slIsFeatureSupported(sl::kFeatureDLSS_G, adapterInfo), "slIsFeatureSupported_DLSSG";
     if (m_dlssgAvailable) log::info("DLSS-G is supported on this system.");
     else log::warning("DLSS-G is not fully functional on this system.");
 #endif
 
-    m_pclAvailable = successCheck(slIsFeatureSupported(sl::kFeaturePCL, adapterInfo), "slIsFeatureSupported_PCL");
+    m_pclAvailable = sl::Result::eOk == slIsFeatureSupported(sl::kFeaturePCL, adapterInfo), "slIsFeatureSupported_PCL";
     if (m_pclAvailable) log::info("PCL is supported on this system.");
     else log::warning("PCL is not fully functional on this system.");
 
 #if STREAMLINE_FEATURE_REFLEX
-    m_reflexAvailable = successCheck(slIsFeatureSupported(sl::kFeatureReflex, adapterInfo), "slIsFeatureSupported_REFLEX");
+    m_reflexAvailable = sl::Result::eOk == slIsFeatureSupported(sl::kFeatureReflex, adapterInfo), "slIsFeatureSupported_REFLEX";
     if (m_reflexAvailable) log::info("Reflex is supported on this system.");
     else log::warning("Reflex is not fully functional on this system.");
 #endif
 
 #if STREAMLINE_FEATURE_DEEPDVC
-    m_deepdvcAvailable = successCheck(slIsFeatureSupported(sl::kFeatureDeepDVC, adapterInfo), "slIsFeatureSupported_DeepDVC");
+    m_deepdvcAvailable = sl::Result::eOk == slIsFeatureSupported(sl::kFeatureDeepDVC, adapterInfo), "slIsFeatureSupported_DeepDVC";
     if (m_deepdvcAvailable) log::info("DeepDVC is supported on this system.");
     else log::warning("DeepDVC is not fully functional on this system.");
 #endif
 
 #if STREAMLINE_FEATURE_DLSS_RR && STREAMLINE_HAS_DLSS_RR
-    m_dlssrrAvailable = successCheck(slIsFeatureSupported(sl::kFeatureDLSS_RR, adapterInfo), "slIsFeatureSupported_DLSSRR");
+    m_dlssrrAvailable = sl::Result::eOk == slIsFeatureSupported(sl::kFeatureDLSS_RR, adapterInfo), "slIsFeatureSupported_DLSSRR";
     if (m_dlssrrAvailable) log::info("DLSS-RR is supported on this system.");
     else log::warning("DLSS-RR is not fully functional on this system.");
 #endif
