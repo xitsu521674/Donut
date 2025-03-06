@@ -168,8 +168,13 @@ static const std::map< const sl::Result, const std::string> errors =
         {sl::Result::eErrorFeatureWrongPriority,"eErrorFeatureWrongPriority"},
         {sl::Result::eErrorFeatureMissingDependency,"eErrorFeatureMissingDependency"},
         {sl::Result::eErrorFeatureManagerInvalidState,"eErrorFeatureManagerInvalidState"},
-        {sl::Result::eErrorInvalidState,"eErrorInvalidState"},
-        {sl::Result::eWarnOutOfVRAM,"eWarnOutOfVRAM"} };
+        {sl::Result::eErrorInvalidState,"eErrorInvalidState"}
+};
+
+static const std::map< const sl::Result, const std::string> warnings =
+{
+        {sl::Result::eWarnOutOfVRAM,"eWarnOutOfVRAM"}
+};
 
 static bool successCheck(sl::Result result, const char* location)
 {
@@ -177,7 +182,12 @@ static bool successCheck(sl::Result result, const char* location)
         return true;
 
     auto a = errors.find(result);
-    if (a != errors.end())
+    if (warnings.find(result) != warnings.end())
+    {
+        logFunctionCallback(sl::LogType::eWarn, ("Warning: " + a->second + (location == nullptr ? "" : (" encountered in " + std::string(location)))).c_str());
+        return true;
+    } 
+    else if (a != errors.end())
         logFunctionCallback(sl::LogType::eError, ("Error: " + a->second + (location == nullptr ? "" : (" encountered in " + std::string(location)))).c_str());
     else
         logFunctionCallback(sl::LogType::eError, ("Unknown error " + static_cast<int>(result) + (location == nullptr ? "" : (" encountered in " + std::string(location)))).c_str());
@@ -594,7 +604,14 @@ void StreamlineIntegration::Shutdown()
         sl::ResourceTag{nullptr, sl::kBufferTypeMotionVectors, sl::ResourceLifecycle::eValidUntilPresent},
         sl::ResourceTag{nullptr, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilPresent},
         sl::ResourceTag{nullptr, sl::kBufferTypeScalingOutputColor, sl::ResourceLifecycle::eValidUntilPresent},
-        sl::ResourceTag{nullptr, sl::kBufferTypeHUDLessColor, sl::ResourceLifecycle::eValidUntilPresent} 
+        sl::ResourceTag{nullptr, sl::kBufferTypeHUDLessColor, sl::ResourceLifecycle::eValidUntilPresent},
+        sl::ResourceTag{nullptr, sl::kBufferTypeBackbuffer, sl::ResourceLifecycle::eValidUntilPresent},
+        sl::ResourceTag{nullptr, sl::kBufferTypeAlbedo, sl::ResourceLifecycle::eValidUntilPresent},
+        sl::ResourceTag{nullptr, sl::kBufferTypeSpecularAlbedo, sl::ResourceLifecycle::eValidUntilPresent},
+        sl::ResourceTag{nullptr, sl::kBufferTypeNormals, sl::ResourceLifecycle::eValidUntilPresent},
+        sl::ResourceTag{nullptr, sl::kBufferTypeRoughness, sl::ResourceLifecycle::eValidUntilPresent},
+        sl::ResourceTag{nullptr, sl::kBufferTypeSpecularHitDistance, sl::ResourceLifecycle::eValidUntilPresent},
+        sl::ResourceTag{nullptr, sl::kBufferTypeSpecularMotionVectors, sl::ResourceLifecycle::eValidUntilPresent}
     };
     successCheck(slSetTag(m_viewport, inputs, _countof(inputs), nullptr), "slSetTag_clear");
 
@@ -1400,9 +1417,10 @@ void StreamlineIntegration::TagResourcesDLSSRR(
     nvrhi::ITexture* inputColor,
     nvrhi::ITexture* diffuseAlbedo,
     nvrhi::ITexture* specAlbedo,
-    nvrhi::ITexture* normals,
+    nvrhi::ITexture* normalsAndOptionalRoughness,
     nvrhi::ITexture* roughness,
     nvrhi::ITexture* specHitDist,
+    nvrhi::ITexture* specMotionVectors,
     nvrhi::ITexture* outputColor
 )
 {
@@ -1421,11 +1439,16 @@ void StreamlineIntegration::TagResourcesDLSSRR(
         log::error("Non-D3D12 not implemented");
         return;
     }
+    if ((specHitDist != nullptr && specMotionVectors != nullptr) || (specHitDist == nullptr && specMotionVectors == nullptr))
+    {
+        log::error("SpecHitDist and SpecMotionVectors are mutually exclusive - only one or the other can be used");
+        return;
+    }
 
 #if STREAMLINE_HAS_DLSS_RR
     sl::Extent renderExtent{ 0, 0, inputColor->getDesc().width, inputColor->getDesc().height };
     sl::Extent fullExtent{ 0, 0, outputColor->getDesc().width, outputColor->getDesc().height };
-    sl::Resource inputColorResource, diffuseAlbedoResource, specAlbedoResource, normalsResource, roughnessResource, specHitDistResource, outputColorResource;
+    sl::Resource inputColorResource, diffuseAlbedoResource, specAlbedoResource, normalsAndOptionalRoughnessResource, roughnessResource, specHitDistResource, specMotionVectorsResource, outputColorResource;
     void* cmdbuffer = nullptr;
 
 #if DONUT_WITH_DX12
@@ -1434,9 +1457,13 @@ void StreamlineIntegration::TagResourcesDLSSRR(
         GetSLResource(commandList, inputColorResource, inputColor, view);
         GetSLResource(commandList, diffuseAlbedoResource, diffuseAlbedo, view);
         GetSLResource(commandList, specAlbedoResource, specAlbedo, view);
-        GetSLResource(commandList, normalsResource, normals, view);
-        GetSLResource(commandList, roughnessResource, roughness, view);
-        GetSLResource(commandList, specHitDistResource, specHitDist, view);
+        GetSLResource(commandList, normalsAndOptionalRoughnessResource, normalsAndOptionalRoughness, view);
+        if (roughness != nullptr)
+            GetSLResource(commandList, roughnessResource, roughness, view);
+        if (specHitDist != nullptr)
+            GetSLResource(commandList, specHitDistResource, specHitDist, view);
+        if (specMotionVectors != nullptr)
+            GetSLResource(commandList, specMotionVectorsResource, specMotionVectors, view);
         GetSLResource(commandList, outputColorResource, outputColor, view);
 
         cmdbuffer = commandList->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
@@ -1446,12 +1473,13 @@ void StreamlineIntegration::TagResourcesDLSSRR(
     sl::ResourceTag inputColorResourceTag = sl::ResourceTag{ &inputColorResource, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilPresent, &renderExtent };
     sl::ResourceTag diffuseAlbedoResourceTag = sl::ResourceTag{ &diffuseAlbedoResource, sl::kBufferTypeAlbedo, sl::ResourceLifecycle::eValidUntilPresent, &renderExtent };
     sl::ResourceTag specAlbedoResourceTag = sl::ResourceTag{ &specAlbedoResource, sl::kBufferTypeSpecularAlbedo, sl::ResourceLifecycle::eValidUntilPresent, &renderExtent };
-    sl::ResourceTag normalsResourceTag = sl::ResourceTag{ &normalsResource, sl::kBufferTypeNormals, sl::ResourceLifecycle::eValidUntilPresent, &renderExtent };
-    sl::ResourceTag roughnessResourceTag = sl::ResourceTag{ &roughnessResource, sl::kBufferTypeRoughness, sl::ResourceLifecycle::eValidUntilPresent, &renderExtent };
-    sl::ResourceTag specHitDistResourceTag = sl::ResourceTag{ &specHitDistResource, sl::kBufferTypeSpecularHitDistance, sl::ResourceLifecycle::eValidUntilPresent, &renderExtent };
+    sl::ResourceTag normalsAndOptionalRoughnessTag = sl::ResourceTag{ &normalsAndOptionalRoughnessResource, sl::kBufferTypeNormals, sl::ResourceLifecycle::eValidUntilPresent, &renderExtent };
+    sl::ResourceTag roughnessResourceTag = sl::ResourceTag{ (roughness!=nullptr)?(&roughnessResource):(nullptr), sl::kBufferTypeRoughness, sl::ResourceLifecycle::eValidUntilPresent, &renderExtent };
+    sl::ResourceTag specHitDistResourceTag = sl::ResourceTag{ (specHitDist!=nullptr)?(&specHitDistResource):(nullptr), sl::kBufferTypeSpecularHitDistance, sl::ResourceLifecycle::eValidUntilPresent, &renderExtent };
+    sl::ResourceTag specMotionVectorsResourceTag = sl::ResourceTag{ (specMotionVectors!=nullptr) ? (&specMotionVectorsResource) : (nullptr), sl::kBufferTypeSpecularMotionVectors, sl::ResourceLifecycle::eValidUntilPresent, &renderExtent };
     sl::ResourceTag outputColorResourceTag = sl::ResourceTag{ &outputColorResource, sl::kBufferTypeScalingOutputColor, sl::ResourceLifecycle::eValidUntilPresent, &fullExtent };
 
-    sl::ResourceTag inputs[] = { inputColorResourceTag, diffuseAlbedoResourceTag, specAlbedoResourceTag, normalsResourceTag, roughnessResourceTag, specHitDistResourceTag, outputColorResourceTag };
+    sl::ResourceTag inputs[] = { inputColorResourceTag, diffuseAlbedoResourceTag, specAlbedoResourceTag, normalsAndOptionalRoughnessTag, roughnessResourceTag, specHitDistResourceTag, specMotionVectorsResourceTag, outputColorResourceTag };
     successCheck(slSetTag(m_viewport, inputs, _countof(inputs), cmdbuffer), "slSetTag_DLSSRR");
 #endif
 }
