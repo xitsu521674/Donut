@@ -99,6 +99,11 @@ public:
 
     virtual void UnTagResourcesDeepDVC() override;
 
+    // * If roughness != nullptr, normalsAndOptionalRoughness contains only normals. If roughness == nullptr then the 
+    //   roughness value should be in .a channel of the normalsAndOptionalRoughness and normalRoughnessMode in 
+    //   StreamlineInterface::DLSSRROptions must be set to DLSSRRNormalRoughnessMode::ePacked.
+    // * Either specHitDist or specMotionVectors should be provided but not both nor neither. Refer to DLSS-RR 
+    //   documentation for more detail.
     virtual void TagResourcesDLSSRR(
         nvrhi::ICommandList* commandList,
         const donut::engine::IView* view,
@@ -107,9 +112,10 @@ public:
         nvrhi::ITexture* inputColor,
         nvrhi::ITexture* diffuseAlbedo,
         nvrhi::ITexture* specAlbedo,
-        nvrhi::ITexture* normals,
+        nvrhi::ITexture* normalsAndOptionalRoughness,
         nvrhi::ITexture* roughness,
         nvrhi::ITexture* specHitDist,
+        nvrhi::ITexture* specMotionVectors,
         nvrhi::ITexture* outputColor
     ) override;
 private:
