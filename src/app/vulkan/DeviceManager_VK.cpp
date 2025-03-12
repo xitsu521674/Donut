@@ -1020,6 +1020,7 @@ bool DeviceManager_VK::CreateDevice()
 #if DONUT_WITH_AFTERMATH
     deviceDesc.aftermathEnabled = m_DeviceParams.enableAftermath;
 #endif
+    deviceDesc.vulkanLibraryName = m_DeviceParams.vulkanLibraryName;
 
     m_NvrhiDevice = nvrhi::vulkan::createDevice(deviceDesc);
 
