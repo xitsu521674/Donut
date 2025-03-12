@@ -1470,10 +1470,13 @@ void StreamlineIntegration::TagResourcesDLSSRR(
     }
 #endif
 
+    // must match sl::DLSSDNormalRoughnessMode; if separate roughness provided then normalsAndOptionalRoughness is just normals, otherwise they're packed together with roughness in .w
+    sl::BufferType normalsOrNormalsAndRoughnessBufferType = (roughness==nullptr)?(sl::kBufferTypeNormalRoughness):(sl::kBufferTypeNormals);
+
     sl::ResourceTag inputColorResourceTag = sl::ResourceTag{ &inputColorResource, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilPresent, &renderExtent };
     sl::ResourceTag diffuseAlbedoResourceTag = sl::ResourceTag{ &diffuseAlbedoResource, sl::kBufferTypeAlbedo, sl::ResourceLifecycle::eValidUntilPresent, &renderExtent };
     sl::ResourceTag specAlbedoResourceTag = sl::ResourceTag{ &specAlbedoResource, sl::kBufferTypeSpecularAlbedo, sl::ResourceLifecycle::eValidUntilPresent, &renderExtent };
-    sl::ResourceTag normalsAndOptionalRoughnessTag = sl::ResourceTag{ &normalsAndOptionalRoughnessResource, sl::kBufferTypeNormals, sl::ResourceLifecycle::eValidUntilPresent, &renderExtent };
+    sl::ResourceTag normalsAndOptionalRoughnessTag = sl::ResourceTag{ &normalsAndOptionalRoughnessResource, normalsOrNormalsAndRoughnessBufferType, sl::ResourceLifecycle::eValidUntilPresent, &renderExtent };
     sl::ResourceTag roughnessResourceTag = sl::ResourceTag{ (roughness!=nullptr)?(&roughnessResource):(nullptr), sl::kBufferTypeRoughness, sl::ResourceLifecycle::eValidUntilPresent, &renderExtent };
     sl::ResourceTag specHitDistResourceTag = sl::ResourceTag{ (specHitDist!=nullptr)?(&specHitDistResource):(nullptr), sl::kBufferTypeSpecularHitDistance, sl::ResourceLifecycle::eValidUntilPresent, &renderExtent };
     sl::ResourceTag specMotionVectorsResourceTag = sl::ResourceTag{ (specMotionVectors!=nullptr) ? (&specMotionVectorsResource) : (nullptr), sl::kBufferTypeSpecularMotionVectors, sl::ResourceLifecycle::eValidUntilPresent, &renderExtent };
