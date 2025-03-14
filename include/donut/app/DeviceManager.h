@@ -145,7 +145,7 @@ namespace donut::app
         bool startMaximized = false; // ignores backbuffer width/height to be monitor size
         bool startFullscreen = false;
         bool startBorderless = false;
-        bool allowModeSwitch = true;
+        bool allowModeSwitch = false;
         int windowPosX = -1;            // -1 means use default placement
         int windowPosY = -1;
         uint32_t backBufferWidth = 1280;
