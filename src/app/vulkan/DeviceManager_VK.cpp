@@ -1128,7 +1128,7 @@ bool DeviceManager_VK::BeginFrame()
             vk::Fence(),
             &m_SwapChainIndex);
 
-        if (res == vk::Result::eErrorOutOfDateKHR && attempt < maxAttempts)
+        if ((res == vk::Result::eErrorOutOfDateKHR || res == vk::Result::eSuboptimalKHR) && attempt < maxAttempts)
         {
             BackBufferResizing();
             auto surfaceCaps = m_VulkanPhysicalDevice.getSurfaceCapabilitiesKHR(m_WindowSurface);
@@ -1145,7 +1145,7 @@ bool DeviceManager_VK::BeginFrame()
 
     m_AcquireSemaphoreIndex = (m_AcquireSemaphoreIndex + 1) % m_AcquireSemaphores.size();
 
-    if (res == vk::Result::eSuccess)
+    if (res == vk::Result::eSuccess || res == vk::Result::eSuboptimalKHR) // Suboptimal is considered a success
     {
         // Schedule the wait. The actual wait operation will be submitted when the app executes any command list.
         m_NvrhiDevice->queueWaitForSemaphore(nvrhi::CommandQueue::Graphics, semaphore, 0);
@@ -1173,7 +1173,7 @@ bool DeviceManager_VK::Present()
                                 .setPImageIndices(&m_SwapChainIndex);
 
     const vk::Result res = m_PresentQueue.presentKHR(&info);
-    if (!(res == vk::Result::eSuccess || res == vk::Result::eErrorOutOfDateKHR))
+    if (!(res == vk::Result::eSuccess || res == vk::Result::eErrorOutOfDateKHR || res == vk::Result::eSuboptimalKHR))
     {
         return false;
     }
