@@ -39,6 +39,12 @@ string(APPEND CMAKE_CXX_FLAGS_DEBUG " -D_DEBUG")
 
 include(CMakeDependentOption)
 
+# Set the path to ShaderMakeBlob
+set(SHADERMAKE_BLOB_PATH "${CMAKE_CURRENT_SOURCE_DIR}" CACHE PATH "Path to ShaderMakeBlob library")
+
+# Add link directory for ShaderMakeBlob
+link_directories(${SHADERMAKE_BLOB_PATH})
+
 option(DONUT_WITH_NVRHI "Enable NVRHI and related projects" ON)
 
 cmake_dependent_option(DONUT_WITH_DX11 "Enable the DX11 version of Donut" ON "WIN32" OFF)
@@ -69,12 +75,27 @@ endif()
 
 add_subdirectory(thirdparty)
 
-if (NOT TARGET ShaderMake)
-    option(SHADERMAKE_FIND_FXC "" "${DONUT_WITH_DX11}")
-    option(SHADERMAKE_FIND_DXC "" "${DONUT_WITH_DX12}")
-    option(SHADERMAKE_FIND_DXC_SPIRV "" "${DONUT_WITH_VULKAN}")
+# Path to pre-compiled ShaderMake executable in the same directory as CMakeLists.txt
+set(SHADERMAKE_EXECUTABLE "${CMAKE_CURRENT_SOURCE_DIR}/ShaderMake.exe" CACHE FILEPATH "Path to pre-compiled ShaderMake executable")
+if (NOT EXISTS "${SHADERMAKE_EXECUTABLE}")
+    message(WARNING "ShaderMake executable not found at ${SHADERMAKE_EXECUTABLE}. Please ensure it exists.")
+endif ()
 
-    add_subdirectory(ShaderMake)
+# Create a custom target for ShaderMake to make it available to other parts of the build
+add_custom_target(ShaderMake)
+set_target_properties(ShaderMake PROPERTIES IMPORTED_LOCATION "${SHADERMAKE_EXECUTABLE}")
+
+# Optional compiler settings for ShaderMake
+if (DONUT_WITH_DX11)
+    set(SHADERMAKE_FXC_PATH "" CACHE FILEPATH "Path to FXC compiler")
+endif()
+
+if (DONUT_WITH_DX12)
+    set(SHADERMAKE_DXC_PATH "" CACHE FILEPATH "Path to DXC compiler")
+endif()
+
+if (DONUT_WITH_VULKAN)
+    set(SHADERMAKE_DXC_SPIRV_PATH "" CACHE FILEPATH "Path to DXC SPIRV compiler")
 endif()
 
 if (DONUT_WITH_NVRHI)
@@ -137,4 +158,3 @@ if (DONUT_WITH_STREAMLINE)
         endif()
     endif()
 endif()
-

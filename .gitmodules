@@ -19,6 +19,3 @@
 [submodule "thirdparty/miniz"]
 	path = thirdparty/miniz
 	url = https://github.com/richgel999/miniz.git
-[submodule "ShaderMake"]
-	path = ShaderMake
-	url = https://github.com/NVIDIA-RTX/ShaderMake.git

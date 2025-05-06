@@ -160,7 +160,7 @@ function(donut_compile_shaders)
             message(FATAL_ERROR "donut_compile_shaders: DXC not found --- please set DXC_PATH to the full path to the DXC binary")
         endif()
         
-        set(compilerCommand ShaderMake
+        set(compilerCommand ${SHADERMAKE_EXECUTABLE}
            --config ${params_CONFIG}
            --out ${params_DXIL}
            --platform DXIL
@@ -192,7 +192,7 @@ function(donut_compile_shaders)
             message(FATAL_ERROR "donut_compile_shaders: Slang not found --- please set SLANGC_PATH to the full path to the Slang executable")
         endif()
         
-        set(compilerCommand ShaderMake
+        set(compilerCommand ${SHADERMAKE_EXECUTABLE}
            --config ${params_CONFIG}
            --out ${params_DXIL_SLANG}
            --platform DXIL
@@ -224,7 +224,7 @@ function(donut_compile_shaders)
             message(FATAL_ERROR "donut_compile_shaders: FXC not found --- please set FXC_PATH to the full path to the FXC binary")
         endif()
         
-        set(compilerCommand ShaderMake
+        set(compilerCommand ${SHADERMAKE_EXECUTABLE}
            --config ${params_CONFIG}
            --out ${params_DXBC}
            --platform DXBC
@@ -251,11 +251,12 @@ function(donut_compile_shaders)
     endif()
 
     if (params_SPIRV_DXC AND DONUT_WITH_VULKAN)
+        set(DXC_SPIRV_PATH "C:/DXC/bin/x64/dxc.exe" CACHE PATH "Path to DXC compiler")
         if (NOT DXC_SPIRV_PATH)
             message(FATAL_ERROR "donut_compile_shaders: DXC for SPIR-V not found --- please set DXC_SPIRV_PATH to the full path to the DXC binary")
         endif()
         
-        set(compilerCommand ShaderMake
+        set(compilerCommand ${SHADERMAKE_EXECUTABLE}
            --config ${params_CONFIG}
            --out ${params_SPIRV_DXC}
            --platform SPIRV
@@ -289,7 +290,7 @@ function(donut_compile_shaders)
             message(FATAL_ERROR "donut_compile_shaders: Slang not found --- please set SLANGC_PATH to the full path to the Slang executable")
         endif()
         
-        set(compilerCommand ShaderMake
+        set(compilerCommand ${SHADERMAKE_EXECUTABLE}
            --config ${params_CONFIG}
            --out ${params_SPIRV_SLANG}
            --platform SPIRV
