@@ -29,8 +29,8 @@
 
 #include <donut/core/math/math.h>
 
-#define GLFW_INCLUDE_NONE // Do not include any OpenGL headers
-#include <GLFW/glfw3.h>
+// Android-specific key codes
+#include <android/keycodes.h>
 
 namespace donut::engine
 {
@@ -40,6 +40,52 @@ namespace donut::engine
 
 namespace donut::app
 {
+    // Define Android-specific key codes to replace GLFW ones
+    // These will match Android's AKEYCODE values but with our own prefix
+    #define KEY_TAB         AKEYCODE_TAB
+    #define KEY_LEFT        AKEYCODE_DPAD_LEFT
+    #define KEY_RIGHT       AKEYCODE_DPAD_RIGHT
+    #define KEY_UP          AKEYCODE_DPAD_UP
+    #define KEY_DOWN        AKEYCODE_DPAD_DOWN
+    #define KEY_PAGE_UP     AKEYCODE_PAGE_UP
+    #define KEY_PAGE_DOWN   AKEYCODE_PAGE_DOWN
+    #define KEY_HOME        AKEYCODE_HOME
+    #define KEY_END         AKEYCODE_MOVE_END
+    #define KEY_DELETE      AKEYCODE_FORWARD_DEL
+    #define KEY_BACKSPACE   AKEYCODE_DEL
+    #define KEY_ENTER       AKEYCODE_ENTER
+    #define KEY_ESCAPE      AKEYCODE_ESCAPE
+    #define KEY_LEFT_SHIFT  AKEYCODE_SHIFT_LEFT
+    #define KEY_RIGHT_SHIFT AKEYCODE_SHIFT_RIGHT
+    #define KEY_LEFT_CONTROL AKEYCODE_CTRL_LEFT
+    #define KEY_RIGHT_CONTROL AKEYCODE_CTRL_RIGHT
+    #define KEY_LEFT_ALT    AKEYCODE_ALT_LEFT
+    #define KEY_RIGHT_ALT   AKEYCODE_ALT_RIGHT
+    #define KEY_LEFT_SUPER  AKEYCODE_META_LEFT
+    #define KEY_RIGHT_SUPER AKEYCODE_META_RIGHT
+    
+    // Define Android-specific mouse button codes
+    #define MOUSE_BUTTON_LEFT   0
+    #define MOUSE_BUTTON_RIGHT  1
+    #define MOUSE_BUTTON_MIDDLE 2
+    
+    // Define Android-specific key action codes to replace GLFW ones
+    #define ACTION_PRESS    1
+    #define ACTION_RELEASE  0
+    #define ACTION_REPEAT   2
+    
+    // Define Android-specific gamepad axis constants
+    #define GAMEPAD_AXIS_LEFT_X      0
+    #define GAMEPAD_AXIS_LEFT_Y      1
+    #define GAMEPAD_AXIS_RIGHT_X     2
+    #define GAMEPAD_AXIS_RIGHT_Y     3
+    #define GAMEPAD_AXIS_LEFT_TRIGGER 4
+    #define GAMEPAD_AXIS_RIGHT_TRIGGER 5
+    
+    // Define Android-specific gamepad button constants
+    #define GAMEPAD_BUTTON_A         0
+    #define GAMEPAD_BUTTON_B         1
+    #define GAMEPAD_BUTTON_LAST      15
 
     // A camera with position and orientation. Methods for moving it come from derived classes.
     class BaseCamera
@@ -101,6 +147,8 @@ namespace donut::app
         dm::float2 m_MousePos = 0.f;
         dm::float2 m_MousePosPrev = 0.f;
         dm::float2 m_MouseMotionAccumulator = 0.f;
+        dm::float3 m_CameraMovePrev =
+        ```cpp
         dm::float3 m_CameraMovePrev = 0.f;
         dm::float3 m_CameraMoveDamp = 0.f;
         bool m_IsDragging = false;
@@ -138,28 +186,28 @@ namespace donut::app
         } MouseButtons;
 
         const std::unordered_map<int, int> m_KeyboardMap = {
-            { GLFW_KEY_Q, KeyboardControls::MoveDown },
-            { GLFW_KEY_E, KeyboardControls::MoveUp },
-            { GLFW_KEY_A, KeyboardControls::MoveLeft },
-            { GLFW_KEY_D, KeyboardControls::MoveRight },
-            { GLFW_KEY_W, KeyboardControls::MoveForward },
-            { GLFW_KEY_S, KeyboardControls::MoveBackward },
-            { GLFW_KEY_LEFT, KeyboardControls::YawLeft },
-            { GLFW_KEY_RIGHT, KeyboardControls::YawRight },
-            { GLFW_KEY_UP, KeyboardControls::PitchUp },
-            { GLFW_KEY_DOWN, KeyboardControls::PitchDown },
-            { GLFW_KEY_Z, KeyboardControls::RollLeft },
-            { GLFW_KEY_C, KeyboardControls::RollRight },
-            { GLFW_KEY_LEFT_SHIFT, KeyboardControls::SpeedUp },
-            { GLFW_KEY_RIGHT_SHIFT, KeyboardControls::SpeedUp },
-            { GLFW_KEY_LEFT_CONTROL, KeyboardControls::SlowDown },
-            { GLFW_KEY_RIGHT_CONTROL, KeyboardControls::SlowDown },
+            { KEY_TAB, KeyboardControls::MoveDown },
+            { 'E', KeyboardControls::MoveUp },
+            { 'A', KeyboardControls::MoveLeft },
+            { 'D', KeyboardControls::MoveRight },
+            { 'W', KeyboardControls::MoveForward },
+            { 'S', KeyboardControls::MoveBackward },
+            { KEY_LEFT, KeyboardControls::YawLeft },
+            { KEY_RIGHT, KeyboardControls::YawRight },
+            { KEY_UP, KeyboardControls::PitchUp },
+            { KEY_DOWN, KeyboardControls::PitchDown },
+            { 'Z', KeyboardControls::RollLeft },
+            { 'C', KeyboardControls::RollRight },
+            { KEY_LEFT_SHIFT, KeyboardControls::SpeedUp },
+            { KEY_RIGHT_SHIFT, KeyboardControls::SpeedUp },
+            { KEY_LEFT_CONTROL, KeyboardControls::SlowDown },
+            { KEY_RIGHT_CONTROL, KeyboardControls::SlowDown },
         };
 
         const std::unordered_map<int, int> m_MouseButtonMap = {
-            { GLFW_MOUSE_BUTTON_LEFT, MouseButtons::Left },
-            { GLFW_MOUSE_BUTTON_MIDDLE, MouseButtons::Middle },
-            { GLFW_MOUSE_BUTTON_RIGHT, MouseButtons::Right },
+            { MOUSE_BUTTON_LEFT, MouseButtons::Left },
+            { MOUSE_BUTTON_MIDDLE, MouseButtons::Middle },
+            { MOUSE_BUTTON_RIGHT, MouseButtons::Right },
         };
 
         std::array<bool, KeyboardControls::KeyboardControlCount> m_KeyboardState = { false };
@@ -229,7 +277,7 @@ namespace donut::app
         } KeyboardControls;
 
         const std::unordered_map<int, int> m_KeyboardMap = {
-            { GLFW_KEY_LEFT_ALT, KeyboardControls::HorizontalPan },
+            { KEY_LEFT_ALT, KeyboardControls::HorizontalPan },
         };
 
         typedef enum

@@ -53,7 +53,7 @@ void FirstPersonCamera::KeyboardUpdate(int key, int scancode, int action, int mo
     }
 
     auto cameraKey = m_KeyboardMap.at(key);
-    if (action == GLFW_PRESS || action == GLFW_REPEAT)
+    if (action == ACTION_PRESS || action == ACTION_REPEAT)
     {
         m_KeyboardState[cameraKey] = true;
     }
@@ -75,7 +75,7 @@ void FirstPersonCamera::MouseButtonUpdate(int button, int action, int mods)
     }
 
     auto cameraButton = m_MouseButtonMap.at(button);
-    if (action == GLFW_PRESS)
+    if (action == ACTION_PRESS)
     {
         m_MouseButtonState[cameraButton] = true;
     }
@@ -293,7 +293,7 @@ void ThirdPersonCamera::KeyboardUpdate(int key, int scancode, int action, int mo
     }
 
     auto cameraKey = m_KeyboardMap.at(key);
-    if (action == GLFW_PRESS || action == GLFW_REPEAT)
+    if (action == ACTION_PRESS || action == ACTION_REPEAT)
     {
         m_KeyboardState[cameraKey] = true;
     }
@@ -309,13 +309,13 @@ void ThirdPersonCamera::MousePosUpdate(double xpos, double ypos)
 
 void ThirdPersonCamera::MouseButtonUpdate(int button, int action, int mods)
 {
-    const bool pressed = (action == GLFW_PRESS);
+    const bool pressed = (action == ACTION_PRESS);
 
     switch(button)
     {
-    case GLFW_MOUSE_BUTTON_LEFT: m_MouseButtonState[MouseButtons::Left] = pressed; break;
-    case GLFW_MOUSE_BUTTON_MIDDLE : m_MouseButtonState[MouseButtons::Middle] = pressed; break;
-    case GLFW_MOUSE_BUTTON_RIGHT: m_MouseButtonState[MouseButtons::Right] = pressed; break;
+    case MOUSE_BUTTON_LEFT: m_MouseButtonState[MouseButtons::Left] = pressed; break;
+    case MOUSE_BUTTON_MIDDLE : m_MouseButtonState[MouseButtons::Middle] = pressed; break;
+    case MOUSE_BUTTON_RIGHT: m_MouseButtonState[MouseButtons::Right] = pressed; break;
     default: break;
     }
 }
@@ -330,8 +330,8 @@ void ThirdPersonCamera::JoystickUpdate(int axis, float value)
 {
     switch (axis)
     {
-    case GLFW_GAMEPAD_AXIS_RIGHT_X: m_DeltaYaw = value; break;
-    case GLFW_GAMEPAD_AXIS_RIGHT_Y: m_DeltaPitch = value; break;
+    case GAMEPAD_AXIS_RIGHT_X: m_DeltaYaw = value; break;
+    case GAMEPAD_AXIS_RIGHT_Y: m_DeltaPitch = value; break;
     default: break;
     }
 }
@@ -340,8 +340,8 @@ void ThirdPersonCamera::JoystickButtonUpdate(int button, bool pressed)
 {
     switch (button)
     {
-    case GLFW_GAMEPAD_BUTTON_B: if (pressed) m_DeltaDistance -= 1; break;
-    case GLFW_GAMEPAD_BUTTON_A: if (pressed) m_DeltaDistance += 1; break;
+    case GAMEPAD_BUTTON_B: if (pressed) m_DeltaDistance -= 1; break;
+    case GAMEPAD_BUTTON_A: if (pressed) m_DeltaDistance += 1; break;
     default: break;
     }
 }
@@ -528,6 +528,8 @@ void SwitchableCamera::SwitchToFirstPerson(bool copyView)
     {
         if (m_SceneCamera)
         {
+            dm::affine3 viewToWorl
+            ```cpp
             dm::affine3 viewToWorld = m_SceneCamera->GetViewToWorldMatrix();
             m_FirstPerson.LookTo(viewToWorld.m_translation, viewToWorld.m_linear.row2, viewToWorld.m_linear.row1);
         }

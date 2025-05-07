@@ -20,33 +20,6 @@
 * DEALINGS IN THE SOFTWARE.
 */
 
-/*
-License for glfw
-
-Copyright (c) 2002-2006 Marcus Geelnard
-
-Copyright (c) 2006-2019 Camilla Lowy
-
-This software is provided 'as-is', without any express or implied
-warranty. In no event will the authors be held liable for any damages
-arising from the use of this software.
-
-Permission is granted to anyone to use this software for any purpose,
-including commercial applications, and to alter it and redistribute it
-freely, subject to the following restrictions:
-
-1. The origin of this software must not be misrepresented; you must not
-   claim that you wrote the original software. If you use this software
-   in a product, an acknowledgment in the product documentation would
-   be appreciated but is not required.
-
-2. Altered source versions must be plainly marked as such, and must not
-   be misrepresented as being the original software.
-
-3. This notice may not be removed or altered from any source
-   distribution.
-*/
-
 #include <donut/app/DeviceManager.h>
 #include <donut/core/math/math.h>
 #include <donut/core/log.h>
@@ -56,6 +29,14 @@ freely, subject to the following restrictions:
 #include <iomanip>
 #include <thread>
 #include <sstream>
+
+// Android specific includes
+#include <android/native_window.h>
+#include <android/native_activity.h>
+#include <android/input.h>
+#include <android/configuration.h>
+#include <android/looper.h>
+#include <jni.h>
 
 #if DONUT_WITH_DX11
 #include <d3d11.h>
@@ -69,122 +50,93 @@ freely, subject to the following restrictions:
 #include <StreamlineIntegration.h>
 #endif
 
-#ifdef _WINDOWS
-#include <ShellScalingApi.h>
-#pragma comment(lib, "shcore.lib")
-#endif
-
-#if defined(_WINDOWS) && DONUT_FORCE_DISCRETE_GPU
-extern "C"
-{
-    // Declaring this symbol makes the OS run the app on the discrete GPU on NVIDIA Optimus laptops by default
-    __declspec(dllexport) DWORD NvOptimusEnablement = 1;
-    // Same as above, for laptops with AMD GPUs
-    __declspec(dllexport) DWORD AmdPowerXpressRequestHighPerformance = 1;
-}
-#endif
-
 using namespace donut::app;
 
-// The joystick interface in glfw is not per-window like the keys, mouse, etc. The joystick callbacks
-// don't take a window arg. So glfw's model is a global joystick shared by all windows. Hence, the equivalent 
-// is a singleton class that all DeviceManager instances can use.
-class JoyStickManager
+// The Android-specific class to manage joystick/gamepad inputs
+class AndroidInputManager
 {
 public:
-	static JoyStickManager& Singleton()
-	{
-		static JoyStickManager singleton;
-		return singleton;
-	}
+    static AndroidInputManager& Singleton()
+    {
+        static AndroidInputManager singleton;
+        return singleton;
+    }
 
-	void UpdateAllJoysticks(const std::list<IRenderPass*>& passes);
-	
-	void EraseDisconnectedJoysticks();
-	void EnumerateJoysticks();
+    void UpdateAllInputs(const std::list<IRenderPass*>& passes);
+    void ProcessInputEvent(AInputEvent* event, const std::list<IRenderPass*>& passes);
+    
+    void EraseDisconnectedDevices();
+    void EnumerateInputDevices();
 
-	void ConnectJoystick(int id);
-	void DisconnectJoystick(int id);
+    void ConnectDevice(int id);
+    void DisconnectDevice(int id);
 
 private:
-	JoyStickManager() {}
-	void UpdateJoystick(int j, const std::list<IRenderPass*>& passes);
+    AndroidInputManager() {}
+    void UpdateGamepad(int id, const std::list<IRenderPass*>& passes);
 
-	std::list<int> m_JoystickIDs, m_RemovedJoysticks;
+    std::list<int> m_DeviceIDs, m_RemovedDevices;
 };
 
-static void ErrorCallback_GLFW(int error, const char *description)
+static void AndroidNativeCallback_OnInputEvent(AndroidInputManager* inputManager, AInputEvent* event)
 {
-    fprintf(stderr, "GLFW error: %s\n", description);
-    exit(1);
+    // Process input events here
+    DeviceManager* manager = (DeviceManager*)inputManager;
+    
+    int32_t eventType = AInputEvent_getType(event);
+    if (eventType == AINPUT_EVENT_TYPE_MOTION) {
+        float x = AMotionEvent_getX(event, 0);
+        float y = AMotionEvent_getY(event, 0);
+        
+        int32_t action = AMotionEvent_getAction(event);
+        unsigned int flags = action & AMOTION_EVENT_ACTION_MASK;
+        
+        if (flags == AMOTION_EVENT_ACTION_DOWN || flags == AMOTION_EVENT_ACTION_POINTER_DOWN) {
+            manager->MouseButtonUpdate(0, 1, 0); // Left button press
+            manager->MousePosUpdate(x, y);
+        } else if (flags == AMOTION_EVENT_ACTION_UP || flags == AMOTION_EVENT_ACTION_POINTER_UP) {
+            manager->MouseButtonUpdate(0, 0, 0); // Left button release
+            manager->MousePosUpdate(x, y);
+        } else if (flags == AMOTION_EVENT_ACTION_MOVE) {
+            manager->MousePosUpdate(x, y);
+        }
+    } else if (eventType == AINPUT_EVENT_TYPE_KEY) {
+        int32_t keyCode = AKeyEvent_getKeyCode(event);
+        int32_t action = AKeyEvent_getAction(event);
+        int32_t metaState = AKeyEvent_getMetaState(event);
+        
+        manager->KeyboardUpdate(keyCode, 0, action == AKEY_EVENT_ACTION_DOWN ? 1 : 0, metaState);
+    }
 }
 
-static void WindowIconifyCallback_GLFW(GLFWwindow *window, int iconified)
-{
-    DeviceManager *manager = reinterpret_cast<DeviceManager *>(glfwGetWindowUserPointer(window));
-    manager->WindowIconifyCallback(iconified);
-}
-
-static void WindowFocusCallback_GLFW(GLFWwindow *window, int focused)
-{
-    DeviceManager *manager = reinterpret_cast<DeviceManager *>(glfwGetWindowUserPointer(window));
-    manager->WindowFocusCallback(focused);
-}
-
-static void WindowRefreshCallback_GLFW(GLFWwindow *window)
-{
-    DeviceManager *manager = reinterpret_cast<DeviceManager *>(glfwGetWindowUserPointer(window));
-    manager->WindowRefreshCallback();
-}
-
-static void WindowCloseCallback_GLFW(GLFWwindow *window)
-{
-    DeviceManager *manager = reinterpret_cast<DeviceManager *>(glfwGetWindowUserPointer(window));
-    manager->WindowCloseCallback();
-}
-
-static void WindowPosCallback_GLFW(GLFWwindow *window, int xpos, int ypos)
-{
-    DeviceManager *manager = reinterpret_cast<DeviceManager *>(glfwGetWindowUserPointer(window));
-    manager->WindowPosCallback(xpos, ypos);
-}
-
-static void KeyCallback_GLFW(GLFWwindow *window, int key, int scancode, int action, int mods)
-{
-    DeviceManager *manager = reinterpret_cast<DeviceManager *>(glfwGetWindowUserPointer(window));
-    manager->KeyboardUpdate(key, scancode, action, mods);
-}
-
-static void CharModsCallback_GLFW(GLFWwindow *window, unsigned int unicode, int mods)
-{
-    DeviceManager *manager = reinterpret_cast<DeviceManager *>(glfwGetWindowUserPointer(window));
-    manager->KeyboardCharInput(unicode, mods);
-}
-
-static void MousePosCallback_GLFW(GLFWwindow *window, double xpos, double ypos)
-{
-    DeviceManager *manager = reinterpret_cast<DeviceManager *>(glfwGetWindowUserPointer(window));
-    manager->MousePosUpdate(xpos, ypos);
-}
-
-static void MouseButtonCallback_GLFW(GLFWwindow *window, int button, int action, int mods)
-{
-    DeviceManager *manager = reinterpret_cast<DeviceManager *>(glfwGetWindowUserPointer(window));
-    manager->MouseButtonUpdate(button, action, mods);
-}
-
-static void MouseScrollCallback_GLFW(GLFWwindow *window, double xoffset, double yoffset)
-{
-    DeviceManager *manager = reinterpret_cast<DeviceManager *>(glfwGetWindowUserPointer(window));
-    manager->MouseScrollUpdate(xoffset, yoffset);
-}
-
-static void JoystickConnectionCallback_GLFW(int joyId, int connectDisconnect)
-{
-	if (connectDisconnect == GLFW_CONNECTED)
-		JoyStickManager::Singleton().ConnectJoystick(joyId);
-	if (connectDisconnect == GLFW_DISCONNECTED)
-		JoyStickManager::Singleton().DisconnectJoystick(joyId);
+// Function to handle Android activity lifecycle
+static void AndroidNativeCallback_OnAppCmd(struct android_app* app, int32_t cmd) {
+    DeviceManager* deviceManager = (DeviceManager*)app->userData;
+    
+    switch (cmd) {
+        case APP_CMD_INIT_WINDOW:
+            // Window created, create the swap chain
+            if (app->window) {
+                deviceManager->CreateWindowDeviceAndSwapChain(nullptr, "");
+            }
+            break;
+        case APP_CMD_TERM_WINDOW:
+            // Window destroyed
+            deviceManager->Shutdown();
+            break;
+        case APP_CMD_GAINED_FOCUS:
+            // App gained focus
+            deviceManager->WindowFocusCallback(1);
+            break;
+        case APP_CMD_LOST_FOCUS:
+            // App lost focus
+            deviceManager->WindowFocusCallback(0);
+            break;
+        case APP_CMD_WINDOW_RESIZED:
+            // Window resized
+            deviceManager->UpdateWindowSize();
+            break;
+    }
 }
 
 static const struct
@@ -231,23 +183,7 @@ bool DeviceManager::CreateInstance(const InstanceParameters& params)
     if (m_InstanceCreated)
         return true;
 
-
     static_cast<InstanceParameters&>(m_DeviceParams) = params;
-
-    if (!params.headlessDevice)
-    {
-#ifdef _WINDOWS
-        if (!params.enablePerMonitorDPI)
-        {
-            // glfwInit enables the maximum supported level of DPI awareness unconditionally.
-            // If the app doesn't need it, we have to call this function before glfwInit to override that behavior.
-            SetProcessDpiAwareness(PROCESS_DPI_UNAWARE);
-        }
-#endif
-
-        if (!glfwInit())
-            return false;
-    }
 
 #if DONUT_WITH_AFTERMATH
     if (params.enableAftermath)
@@ -280,89 +216,39 @@ bool DeviceManager::CreateWindowDeviceAndSwapChain(const DeviceCreationParameter
     if (!CreateInstance(m_DeviceParams))
         return false;
 
-    glfwSetErrorCallback(ErrorCallback_GLFW);
-
-    glfwDefaultWindowHints();
-
-    bool foundFormat = false;
-    for (const auto& info : formatInfo)
-    {
-        if (info.format == params.swapChainFormat)
-        {
-            glfwWindowHint(GLFW_RED_BITS, info.redBits);
-            glfwWindowHint(GLFW_GREEN_BITS, info.greenBits);
-            glfwWindowHint(GLFW_BLUE_BITS, info.blueBits);
-            glfwWindowHint(GLFW_ALPHA_BITS, info.alphaBits);
-            glfwWindowHint(GLFW_DEPTH_BITS, info.depthBits);
-            glfwWindowHint(GLFW_STENCIL_BITS, info.stencilBits);
-            foundFormat = true;
-            break;
-        }
-    }
-
-    assert(foundFormat);
-
-    glfwWindowHint(GLFW_SAMPLES, params.swapChainSampleCount);
-    glfwWindowHint(GLFW_REFRESH_RATE, params.refreshRate);
-    glfwWindowHint(GLFW_SCALE_TO_MONITOR, params.resizeWindowWithDisplayScale);
-
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    
-    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);   // Ignored for fullscreen
-
-    if (params.startBorderless)
-    {
-        glfwWindowHint(GLFW_DECORATED, GLFW_FALSE); // Borderless window
-    }
-
-    m_Window = glfwCreateWindow(params.backBufferWidth, params.backBufferHeight,
-                                windowTitle ? windowTitle : "",
-                                params.startFullscreen ? glfwGetPrimaryMonitor() : nullptr,
-                                nullptr);
-
-    if (m_Window == nullptr)
-    {
+    // Get the Android native window from the app structure
+    ANativeWindow* nativeWindow = android_app->window;
+    if (!nativeWindow) {
+        log::error("No native window available");
         return false;
     }
 
-    if (params.startFullscreen)
-    {
-        glfwSetWindowMonitor(m_Window, glfwGetPrimaryMonitor(), 0, 0,
-            m_DeviceParams.backBufferWidth, m_DeviceParams.backBufferHeight, m_DeviceParams.refreshRate);
-    }
-    else
-    {
-        int fbWidth = 0, fbHeight = 0;
-        glfwGetFramebufferSize(m_Window, &fbWidth, &fbHeight);
-        m_DeviceParams.backBufferWidth = fbWidth;
-        m_DeviceParams.backBufferHeight = fbHeight;
-    }
+    // Store window dimensions
+    m_DeviceParams.backBufferWidth = ANativeWindow_getWidth(nativeWindow);
+    m_DeviceParams.backBufferHeight = ANativeWindow_getHeight(nativeWindow);
+
+    // Initialize the native window for rendering
+    m_NativeWindow = nativeWindow;
 
     if (windowTitle)
         m_WindowTitle = windowTitle;
 
-    glfwSetWindowUserPointer(m_Window, this);
-
-    if (params.windowPosX != -1 && params.windowPosY != -1)
-    {
-        glfwSetWindowPos(m_Window, params.windowPosX, params.windowPosY);
+    // Initialize Android input handling
+    AInputQueue* inputQueue = android_app->inputQueue;
+    if (inputQueue) {
+        AInputQueue_attachLooper(inputQueue, android_app->looper, 
+                                LOOPER_ID_INPUT, NULL, NULL);
     }
-    
-    glfwSetWindowPosCallback(m_Window, WindowPosCallback_GLFW);
-    glfwSetWindowCloseCallback(m_Window, WindowCloseCallback_GLFW);
-    glfwSetWindowRefreshCallback(m_Window, WindowRefreshCallback_GLFW);
-    glfwSetWindowFocusCallback(m_Window, WindowFocusCallback_GLFW);
-    glfwSetWindowIconifyCallback(m_Window, WindowIconifyCallback_GLFW);
-    glfwSetKeyCallback(m_Window, KeyCallback_GLFW);
-    glfwSetCharModsCallback(m_Window, CharModsCallback_GLFW);
-    glfwSetCursorPosCallback(m_Window, MousePosCallback_GLFW);
-    glfwSetMouseButtonCallback(m_Window, MouseButtonCallback_GLFW);
-    glfwSetScrollCallback(m_Window, MouseScrollCallback_GLFW);
-    glfwSetJoystickCallback(JoystickConnectionCallback_GLFW);
 
-    // If there are multiple device managers, then this would be called by each one which isn't necessary
-    // but should not hurt.
-    JoyStickManager::Singleton().EnumerateJoysticks();
+    // Set display metrics
+    AConfiguration* config = AConfiguration_new();
+    AConfiguration_fromAssetManager(config, android_app->activity->assetManager);
+    float density = AConfiguration_getDensity(config) / (float)ACONFIGURATION_DENSITY_MEDIUM;
+    m_DPIScaleFactorX = density;
+    m_DPIScaleFactorY = density;
+    AConfiguration_delete(config);
+
+    AndroidInputManager::Singleton().EnumerateInputDevices();
 
     if (!CreateDevice())
         return false;
@@ -370,12 +256,7 @@ bool DeviceManager::CreateWindowDeviceAndSwapChain(const DeviceCreationParameter
     if (!CreateSwapChain())
         return false;
 
-    glfwShowWindow(m_Window);
-    
-    if (m_DeviceParams.startMaximized)
-    {
-        glfwMaximizeWindow(m_Window);
-    }
+    m_windowVisible = true;
 
     // reset the back buffer size state to enforce a resize event
     m_DeviceParams.backBufferWidth = 0;
@@ -497,26 +378,33 @@ bool DeviceManager::ShouldRenderUnfocused() const
 
 void DeviceManager::RunMessageLoop()
 {
-    m_PreviousFrameTimestamp = glfwGetTime();
-
+    // Store current time as previous frame timestamp
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    m_PreviousFrameTimestamp = now.tv_sec + now.tv_nsec / 1000000000.0;
+    
+    // Android main loop
+    while (android_app->destroyRequested == 0) {
+        // Process Android events
+        int events;
+        android_poll_source* source;
+        
+        // Process events - timeout of 0 means non-blocking
+        int timeout = m_windowVisible ? 0 : -1;  // Wait forever if not visible
+        if (ALooper_pollAll(timeout, NULL, &events, (void**)&source) >= 0) {
+            if (source != NULL) {
+                source->process(android_app, source);
+            }
+        }
+        
+        if (m_windowVisible) {
+            bool presentSuccess = AnimateRenderPresent();
+            if (!presentSuccess) {
 #if DONUT_WITH_AFTERMATH
-    bool dumpingCrash = false;
+                dumpingCrash = true;
 #endif
-    while(!glfwWindowShouldClose(m_Window))
-    {
-#if DONUT_WITH_STREAMLINE
-        StreamlineIntegration::Get().SimStart(*this);
-#endif
-        if (m_callbacks.beforeFrame) m_callbacks.beforeFrame(*this, m_FrameIndex);
-        glfwPollEvents();
-        UpdateWindowSize();
-        bool presentSuccess = AnimateRenderPresent();
-        if (!presentSuccess)
-        {
-#if DONUT_WITH_AFTERMATH
-            dumpingCrash = true;
-#endif
-            break;
+                break;
+            }
         }
     }
 
@@ -531,11 +419,16 @@ void DeviceManager::RunMessageLoop()
 
 bool DeviceManager::AnimateRenderPresent()
 {
-    double curTime = glfwGetTime();
+    // Get current time
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    double curTime = now.tv_sec + now.tv_nsec / 1000000000.0;
+    
     double elapsedTime = curTime - m_PreviousFrameTimestamp;
 
-	JoyStickManager::Singleton().EraseDisconnectedJoysticks();
-	JoyStickManager::Singleton().UpdateAllJoysticks(m_vRenderPasses);
+    // Process Android-specific input
+    AndroidInputManager::Singleton().EraseDisconnectedDevices();
+    AndroidInputManager::Singleton().UpdateAllInputs(m_vRenderPasses);
 
     if (m_windowVisible && (m_windowIsInFocus || ShouldRenderUnfocused()))
     {
@@ -624,9 +517,13 @@ donut::app::DeviceManager::DeviceManager()
 
 void DeviceManager::UpdateWindowSize()
 {
-    int width;
-    int height;
-    glfwGetWindowSize(m_Window, &width, &height);
+    if (!m_NativeWindow) {
+        m_windowVisible = false;
+        return;
+    }
+
+    int width = ANativeWindow_getWidth(m_NativeWindow);
+    int height = ANativeWindow_getHeight(m_NativeWindow);
 
     if (width == 0 || height == 0)
     {
@@ -636,15 +533,13 @@ void DeviceManager::UpdateWindowSize()
     }
 
     m_windowVisible = true;
-
-    m_windowIsInFocus = glfwGetWindowAttrib(m_Window, GLFW_FOCUSED) == 1;
+    m_windowIsInFocus = true; // Android doesn't have the same focus concept, assume always in focus when visible
 
     if (int(m_DeviceParams.backBufferWidth) != width || 
         int(m_DeviceParams.backBufferHeight) != height ||
         (m_DeviceParams.vsyncEnabled != m_RequestedVSync && GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN))
     {
         // window is not minimized, and the size has changed
-
         BackBufferResizing();
 
         m_DeviceParams.backBufferWidth = width;
@@ -660,40 +555,16 @@ void DeviceManager::UpdateWindowSize()
 
 void DeviceManager::WindowPosCallback(int x, int y)
 {
-    if (m_DeviceParams.enablePerMonitorDPI)
-    {
-#ifdef _WINDOWS
-        // Use Windows-specific implementation of DPI query because GLFW has issues:
-        // glfwGetWindowMonitor(window) returns NULL for non-fullscreen applications.
-        // This custom code allows us to adjust DPI scaling when a window is moved
-        // between monitors with different scales.
-        
-        HWND hwnd = glfwGetWin32Window(m_Window);
-        auto monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-
-        unsigned int dpiX;
-        unsigned int dpiY;
-        GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY);
-
-        m_DPIScaleFactorX = dpiX / 96.f;
-        m_DPIScaleFactorY = dpiY / 96.f;
-#else
-        // Linux support for display scaling using GLFW.
-        // This has limited utility due to the issue described above (NULL monitor),
-        // and because GLFW doesn't support fractional scaling properly.
-        // For example, on a system with 150% scaling it will report scale = 2.0
-        // but the window will be either too small or too big, depending on 'resizeWindowWithDisplayScale'
-
-        GLFWmonitor* monitor = glfwGetWindowMonitor(m_Window);
-
-        // Non-fullscreen windows have NULL monitor, let's use the primary monitor in this case
-        if (!monitor)
-            monitor = glfwGetPrimaryMonitor();
-
-        glfwGetMonitorContentScale(monitor, &m_DPIScaleFactorX, &m_DPIScaleFactorY);
-#endif
-    }
-
+    // Android doesn't use window position in the same way, but we'll keep the function for compatibility
+    
+    // Update DPI info when position changes
+    AConfiguration* config = AConfiguration_new();
+    AConfiguration_fromAssetManager(config, android_app->activity->assetManager);
+    float density = AConfiguration_getDensity(config) / (float)ACONFIGURATION_DENSITY_MEDIUM;
+    m_DPIScaleFactorX = density;
+    m_DPIScaleFactorY = density;
+    AConfiguration_delete(config);
+    
     if (m_EnableRenderDuringWindowMovement && m_SwapChainFramebuffers.size() > 0)
     {
         if (m_callbacks.beforeFrame) m_callbacks.beforeFrame(*this, m_FrameIndex);
@@ -703,12 +574,6 @@ void DeviceManager::WindowPosCallback(int x, int y)
 
 void DeviceManager::KeyboardUpdate(int key, int scancode, int action, int mods)
 {
-    if (key == -1)
-    {
-        // filter unknown keys
-        return;
-    }
-
     for (auto it = m_vRenderPasses.crbegin(); it != m_vRenderPasses.crend(); it++)
     {
         bool ret = (*it)->KeyboardUpdate(key, scancode, action, mods);
@@ -763,45 +628,39 @@ void DeviceManager::MouseScrollUpdate(double xoffset, double yoffset)
     }
 }
 
-void JoyStickManager::EnumerateJoysticks()
+void AndroidInputManager::EnumerateInputDevices()
 {
-	// The glfw header says nothing about what values to expect for joystick IDs. Empirically, having connected two
-	// simultaneously, glfw just seems to number them starting at 0.
-	for (int i = 0; i != 10; ++i)
-		if (glfwJoystickPresent(i))
-			m_JoystickIDs.push_back(i);
+    // Check for available input devices using Android specific methods
+    // This would typically query the Android InputManager to find connected devices
 }
 
-void JoyStickManager::EraseDisconnectedJoysticks()
+void AndroidInputManager::EraseDisconnectedDevices()
 {
-	while (!m_RemovedJoysticks.empty())
-	{
-		auto id = m_RemovedJoysticks.back();
-		m_RemovedJoysticks.pop_back();
+    while (!m_RemovedDevices.empty())
+    {
+        auto id = m_RemovedDevices.back();
+        m_RemovedDevices.pop_back();
 
-		auto it = std::find(m_JoystickIDs.begin(), m_JoystickIDs.end(), id);
-		if (it != m_JoystickIDs.end())
-			m_JoystickIDs.erase(it);
-	}
+        auto it = std::find(m_DeviceIDs.begin(), m_DeviceIDs.end(), id);
+        if (it != m_DeviceIDs.end())
+            m_DeviceIDs.erase(it);
+    }
 }
 
-void JoyStickManager::ConnectJoystick(int id)
+void AndroidInputManager::ConnectDevice(int id)
 {
-	m_JoystickIDs.push_back(id);
+    m_DeviceIDs.push_back(id);
 }
 
-void JoyStickManager::DisconnectJoystick(int id)
+void AndroidInputManager::DisconnectDevice(int id)
 {
-	// This fn can be called from inside glfwGetJoystickAxes below (similarly for buttons, I guess).
-	// We can't call m_JoystickIDs.erase() here and now. Save them for later. Forunately, glfw docs
-	// say that you can query a joystick ID that isn't present.
-	m_RemovedJoysticks.push_back(id);
+    m_RemovedDevices.push_back(id);
 }
 
-void JoyStickManager::UpdateAllJoysticks(const std::list<IRenderPass*>& passes)
+void AndroidInputManager::UpdateAllInputs(const std::list<IRenderPass*>& passes)
 {
-	for (auto j = m_JoystickIDs.begin(); j != m_JoystickIDs.end(); ++j)
-		UpdateJoystick(*j, passes);
+    for (auto j = m_DeviceIDs.begin(); j != m_DeviceIDs.end(); ++j)
+        UpdateGamepad(*j, passes);
 }
 
 static void ApplyDeadZone(dm::float2& v, const float deadZone = 0.1f)
@@ -809,50 +668,29 @@ static void ApplyDeadZone(dm::float2& v, const float deadZone = 0.1f)
     v *= std::max(dm::length(v) - deadZone, 0.f) / (1.f - deadZone);
 }
 
-void JoyStickManager::UpdateJoystick(int j, const std::list<IRenderPass*>& passes)
+void AndroidInputManager::UpdateGamepad(int j, const std::list<IRenderPass*>& passes)
 {
-    GLFWgamepadstate gamepadState;
-    glfwGetGamepadState(j, &gamepadState);
-
-	float* axisValues = gamepadState.axes;
-
-    auto updateAxis = [&] (int axis, float axisVal)
+    // This would typically use Android's InputDevice API to get gamepad states
+    
+    // Example of how this might work with Android:
+    /*
+    // Get device state
+    // Apply dead zones to analog sticks
+    dm::float2 leftStick(leftX, leftY);
+    ApplyDeadZone(leftStick);
+    
+    // Process the input for each pass
+    for (auto it = passes.crbegin(); it != passes.crend(); it++)
     {
-		for (auto it = passes.crbegin(); it != passes.crend(); it++)
-		{
-			bool ret = (*it)->JoystickAxisUpdate(axis, axisVal);
-			if (ret)
-				break;
-		}
-    };
-
-    {
-        dm::float2 v(axisValues[GLFW_GAMEPAD_AXIS_LEFT_X], axisValues[GLFW_GAMEPAD_AXIS_LEFT_Y]);
-        ApplyDeadZone(v);
-        updateAxis(GLFW_GAMEPAD_AXIS_LEFT_X, v.x);
-        updateAxis(GLFW_GAMEPAD_AXIS_LEFT_Y, v.y);
+        bool ret = (*it)->JoystickAxisUpdate(AXIS_LEFT_X, leftStick.x);
+        if (ret) break;
     }
+    */
+}
 
-    {
-        dm::float2 v(axisValues[GLFW_GAMEPAD_AXIS_RIGHT_X], axisValues[GLFW_GAMEPAD_AXIS_RIGHT_Y]);
-        ApplyDeadZone(v);
-        updateAxis(GLFW_GAMEPAD_AXIS_RIGHT_X, v.x);
-        updateAxis(GLFW_GAMEPAD_AXIS_RIGHT_Y, v.y);
-    }
-
-    updateAxis(GLFW_GAMEPAD_AXIS_LEFT_TRIGGER, axisValues[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER]);
-    updateAxis(GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER, axisValues[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER]);
-
-	for (int b = 0; b != GLFW_GAMEPAD_BUTTON_LAST; ++b)
-	{
-		auto buttonVal = gamepadState.buttons[b];
-		for (auto it = passes.crbegin(); it != passes.crend(); it++)
-		{
-			bool ret = (*it)->JoystickButtonUpdate(b, buttonVal == GLFW_PRESS);
-			if (ret)
-				break;
-		}
-	}
+void AndroidInputManager::ProcessInputEvent(AInputEvent* event, const std::list<IRenderPass*>& passes)
+{
+    // Process Android input events and map them to the appropriate callbacks
 }
 
 void DeviceManager::Shutdown()
@@ -866,13 +704,11 @@ void DeviceManager::Shutdown()
 
     DestroyDeviceAndSwapChain();
 
-    if (m_Window)
+    if (m_NativeWindow)
     {
-        glfwDestroyWindow(m_Window);
-        m_Window = nullptr;
+        ANativeWindow_release(m_NativeWindow);
+        m_NativeWindow = nullptr;
     }
-
-    glfwTerminate();
 
     m_InstanceCreated = false;
 }
@@ -896,7 +732,8 @@ void DeviceManager::SetWindowTitle(const char* title)
     if (m_WindowTitle == title)
         return;
 
-    glfwSetWindowTitle(m_Window, title);
+    // Android doesn't have window titles in the same way desktop apps do
+    // Could potentially send a toast notification or update status bar
 
     m_WindowTitle = title;
 }
@@ -927,6 +764,7 @@ void DeviceManager::SetInformativeWindowTitle(const char* applicationName, bool 
     {
         double const fps = 1.0 / frameTime;
         int const precision = (fps <= 20.0) ? 1 : 0;
+        ```cpp
         ss << " - " << std::fixed << std::setprecision(precision) << fps << " FPS ";
     }
 

@@ -40,7 +40,13 @@ target_include_directories(donut_core PUBLIC include)
 target_link_libraries(donut_core jsoncpp_static)
 
 if(NOT WIN32)
-    target_link_libraries(donut_core stdc++fs dl pthread)
+    if(ANDROID)
+        # On Android, pthread is already in libc
+        target_link_libraries(donut_core dl)
+    else()
+        # For other non-Windows platforms (Linux, macOS)
+        target_link_libraries(donut_core stdc++fs dl pthread)
+    endif()
 endif()
 
 if(WIN32)

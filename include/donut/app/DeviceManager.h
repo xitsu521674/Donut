@@ -20,33 +20,6 @@
 * DEALINGS IN THE SOFTWARE.
 */
 
-/*
-License for glfw
-
-Copyright (c) 2002-2006 Marcus Geelnard
-
-Copyright (c) 2006-2019 Camilla Lowy
-
-This software is provided 'as-is', without any express or implied
-warranty. In no event will the authors be held liable for any damages
-arising from the use of this software.
-
-Permission is granted to anyone to use this software for any purpose,
-including commercial applications, and to alter it and redistribute it
-freely, subject to the following restrictions:
-
-1. The origin of this software must not be misrepresented; you must not
-   claim that you wrote the original software. If you use this software
-   in a product, an acknowledgment in the product documentation would
-   be appreciated but is not required.
-
-2. Altered source versions must be plainly marked as such, and must not
-   be misrepresented as being the original software.
-
-3. This notice may not be removed or altered from any source
-   distribution.
-*/
-
 #pragma once
 
 #if DONUT_WITH_DX11 || DONUT_WITH_DX12
@@ -73,18 +46,19 @@ freely, subject to the following restrictions:
 #include <donut/app/StreamlineInterface.h>
 #endif
 
-#define GLFW_INCLUDE_NONE // Do not include any OpenGL headers
-#include <GLFW/glfw3.h>
-#ifdef _WIN32
-#define GLFW_EXPOSE_NATIVE_WIN32
-#endif // _WIN32
-#include <GLFW/glfw3native.h>
+// Android-specific includes
+#include <android/native_window.h>
+#include <android/asset_manager.h>
+#include <game-activity/native_app_glue/android_native_app_glue.h>
 #include <nvrhi/nvrhi.h>
 #include <donut/core/log.h>
 
 #include <list>
 #include <functional>
 #include <optional>
+
+// Forward declare the android_app struct
+struct android_app;
 
 namespace donut::app
 {
@@ -117,7 +91,7 @@ namespace donut::app
         // may scale the contents of the window based on DPI.
         //
         // This field is located in InstanceParameters and not DeviceCreationParameters because it is needed
-        // in the CreateInstance() function to override the glfwInit() behavior.
+        // in the CreateInstance() function to override the initial behavior.
         bool enablePerMonitorDPI = false;
 
         // Severity of the information log messages from the device manager, like the device name or enabled extensions.
@@ -268,7 +242,8 @@ namespace donut::app
         bool m_windowIsInFocus = true;
 
         DeviceCreationParameters m_DeviceParams;
-        GLFWwindow *m_Window = nullptr;
+        ANativeWindow *m_NativeWindow = nullptr;  // Android native window
+        struct android_app* android_app = nullptr; // Android app handle
         bool m_EnableRenderDuringWindowMovement = false;
         // set to true if running on NV GPU
         bool m_IsNvidia = false;
@@ -328,20 +303,21 @@ namespace donut::app
         virtual void ReportLiveObjects() {}
         void SetEnableRenderDuringWindowMovement(bool val) {m_EnableRenderDuringWindowMovement = val;} 
 
-        // these are public in order to be called from the GLFW callback functions
+        // Android app lifecycle callbacks
         void WindowCloseCallback() { }
         void WindowIconifyCallback(int iconified) { }
-        void WindowFocusCallback(int focused) { }
+        void WindowFocusCallback(int focused) { m_windowIsInFocus = (focused != 0); }
         void WindowRefreshCallback() { }
         void WindowPosCallback(int xpos, int ypos);
 
+        // Input handling callbacks
         void KeyboardUpdate(int key, int scancode, int action, int mods);
         void KeyboardCharInput(unsigned int unicode, int mods);
         void MousePosUpdate(double xpos, double ypos);
         void MouseButtonUpdate(int button, int action, int mods);
         void MouseScrollUpdate(double xoffset, double yoffset);
 
-        [[nodiscard]] GLFWwindow* GetWindow() const { return m_Window; }
+        [[nodiscard]] ANativeWindow* GetNativeWindow() const { return m_NativeWindow; }
         [[nodiscard]] uint32_t GetFrameIndex() const { return m_FrameIndex; }
 
         virtual nvrhi::ITexture* GetCurrentBackBuffer() = 0;
@@ -414,9 +390,7 @@ namespace donut::app
         // Called before Animate() when a DPI change was detected
         virtual void DisplayScaleChanged(float scaleX, float scaleY) { }
 
-        // all of these pass in GLFW constants as arguments
-        // see http://www.glfw.org/docs/latest/input.html
-        // return value is true if the event was consumed by this render pass, false if it should be passed on
+        // Android input handling
         virtual bool KeyboardUpdate(int key, int scancode, int action, int mods) { return false; }
         virtual bool KeyboardCharInput(unsigned int unicode, int mods) { return false; }
         virtual bool MousePosUpdate(double xpos, double ypos) { return false; }
