@@ -20,6 +20,33 @@
 * DEALINGS IN THE SOFTWARE.
 */
 
+/*
+License for glfw
+
+Copyright (c) 2002-2006 Marcus Geelnard
+
+Copyright (c) 2006-2019 Camilla Lowy
+
+This software is provided 'as-is', without any express or implied
+warranty. In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not
+   claim that you wrote the original software. If you use this software
+   in a product, an acknowledgment in the product documentation would
+   be appreciated but is not required.
+
+2. Altered source versions must be plainly marked as such, and must not
+   be misrepresented as being the original software.
+
+3. This notice may not be removed or altered from any source
+   distribution.
+*/
+
 #include <string>
 #include <queue>
 #include <unordered_set>
@@ -31,11 +58,6 @@
 
 #include <nvrhi/vulkan.h>
 #include <nvrhi/validation.h>
-
-// Android-specific includes
-#include <android/native_window.h>
-#include <android_native_app_glue.h>
-#include <android/native_activity.h>
 
 #if DONUT_WITH_STREAMLINE
 #include <StreamlineIntegration.h>
@@ -79,10 +101,21 @@ bool DeviceManager_VK::createInstance()
 {
     if (!m_DeviceParams.headlessDevice)
     {
-        // For Android, we don't need GLFW to get extensions
-        // Add Android-specific Vulkan extensions
-        enabledExtensions.instance.insert(VK_KHR_SURFACE_EXTENSION_NAME);
-        enabledExtensions.instance.insert(VK_KHR_ANDROID_SURFACE_EXTENSION_NAME);
+        if (!glfwVulkanSupported())
+        {
+            log::error("GLFW reports that Vulkan is not supported. Perhaps missing a call to glfwInit()?");
+            return false;
+        }
+
+        // add any extensions required by GLFW
+        uint32_t glfwExtCount;
+        const char **glfwExt = glfwGetRequiredInstanceExtensions(&glfwExtCount);
+        assert(glfwExt);
+
+        for(uint32_t i = 0; i < glfwExtCount; i++)
+        {
+            enabledExtensions.instance.insert(std::string(glfwExt[i]));
+        }
     }
 
     // add instance extensions requested by the user
@@ -478,13 +511,10 @@ bool DeviceManager_VK::findQueueFamilies(vk::PhysicalDevice physicalDevice)
 
         if (m_PresentQueueFamily == -1)
         {
-            if (queueFamily.queueCount > 0)
+            if (queueFamily.queueCount > 0 &&
+                glfwGetPhysicalDevicePresentationSupport(m_VulkanInstance, physicalDevice, i))
             {
-                // For Android, direct check if queue supports presentation
-                if (m_WindowSurface && physicalDevice.getSurfaceSupportKHR(i, m_WindowSurface))
-                {
-                    m_PresentQueueFamily = i;
-                }
+                m_PresentQueueFamily = i;
             }
         }
     }
@@ -609,7 +639,6 @@ bool DeviceManager_VK::createDevice()
     queueDesc.reserve(uniqueQueueFamilies.size());
     for(int queueFamily : uniqueQueueFamilies)
     {
-        ```cpp
         queueDesc.push_back(vk::DeviceQueueCreateInfo()
                                 .setQueueFamilyIndex(queueFamily)
                                 .setQueueCount(1)
@@ -731,20 +760,13 @@ bool DeviceManager_VK::createDevice()
 
 bool DeviceManager_VK::createWindowSurface()
 {
-    // Android-specific surface creation
-    VkAndroidSurfaceCreateInfoKHR surfaceCreateInfo = {};
-    surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
-    surfaceCreateInfo.window = (ANativeWindow*)m_NativeWindow;
-    
-    VkSurfaceKHR surface;
-    VkResult result = vkCreateAndroidSurfaceKHR(m_VulkanInstance, &surfaceCreateInfo, nullptr, &surface);
-    
-    if (result != VK_SUCCESS) {
-        log::error("Failed to create Android window surface, error code = %s", nvrhi::vulkan::resultToString(result));
+    const VkResult res = glfwCreateWindowSurface(m_VulkanInstance, m_Window, nullptr, (VkSurfaceKHR *)&m_WindowSurface);
+    if (res != VK_SUCCESS)
+    {
+        log::error("Failed to create a GLFW window surface, error code = %s", nvrhi::vulkan::resultToString(res));
         return false;
     }
-    
-    m_WindowSurface = static_cast<vk::SurfaceKHR>(surface);
+
     return true;
 }
 
@@ -1159,8 +1181,14 @@ bool DeviceManager_VK::Present()
 
     m_PresentSemaphoreIndex = (m_PresentSemaphoreIndex + 1) % m_PresentSemaphores.size();
 
-    // Android requires explicit synchronization to avoid flickering
-    m_PresentQueue.waitIdle();
+#ifndef _WIN32
+    if (m_DeviceParams.vsyncEnabled || m_DeviceParams.enableDebugRuntime)
+    {
+        // according to vulkan-tutorial.com, "the validation layer implementation expects
+        // the application to explicitly synchronize with the GPU"
+        m_PresentQueue.waitIdle();
+    }
+#endif
 
     while (m_FramesInFlight.size() >= m_DeviceParams.maxFramesInFlight)
     {
